@@ -1,0 +1,692 @@
+// The exported code uses Tailwind CSS. Install Tailwind CSS in your dev environment to ensure all styles work.
+import React, { useState, useEffect, useRef } from 'react';
+const App: React.FC = () => {
+const [gameState, setGameState] = useState<'menu' | 'playing' | 'gameOver'>('menu');
+const [selectedCar, setSelectedCar] = useState<number>(0);
+const [selectedTrack, setSelectedTrack] = useState<number>(0);
+const [score, setScore] = useState<number>(0);
+const [time, setTime] = useState<number>(0);
+const [lap, setLap] = useState<number>(1);
+const [position, setPosition] = useState<number>(1);
+const [speed, setSpeed] = useState<number>(0);
+const [health, setHealth] = useState<number>(100);
+const [activePowerUp, setActivePowerUp] = useState<string | null>(null);
+const [isPaused, setIsPaused] = useState<boolean>(false);
+const [showCarSelection, setShowCarSelection] = useState<boolean>(false);
+const [showTrackSelection, setShowTrackSelection] = useState<boolean>(false);
+const [showHighScores, setShowHighScores] = useState<boolean>(false);
+const [isSoundOn, setIsSoundOn] = useState<boolean>(true);
+const gameLoopRef = useRef<number | null>(null);
+const canvasRef = useRef<HTMLCanvasElement>(null);
+const lastTimeRef = useRef<number>(0);
+const cars = [
+{ name: "Speed Racer", speed: 10, handling: 8, color: "red" },
+{ name: "Turbo Bolt", speed: 9, handling: 9, color: "blue" },
+{ name: "Nitro Blaze", speed: 11, handling: 7, color: "yellow" }
+];
+const tracks = [
+{ name: "Sunset Circuit", difficulty: "Easy", laps: 3 },
+{ name: "Mountain Pass", difficulty: "Medium", laps: 4 },
+{ name: "Coastal Rush", difficulty: "Hard", laps: 5 }
+];
+const highScores = [
+{ name: "Player1", score: 12500, track: "Sunset Circuit" },
+{ name: "Player2", score: 10800, track: "Mountain Pass" },
+{ name: "Player3", score: 9500, track: "Coastal Rush" }
+];
+// Game controls state
+const [controls, setControls] = useState({
+up: false,
+down: false,
+left: false,
+right: false
+});
+// Car position
+const [carPosition, setCarPosition] = useState({ x: 400, y: 500 });
+const [carRotation, setCarRotation] = useState(0);
+// Obstacles and power-ups
+const [obstacles, setObstacles] = useState([
+{ x: 300, y: 200, width: 50, height: 50, type: 'oil' },
+{ x: 600, y: 300, width: 50, height: 50, type: 'cone' },
+{ x: 200, y: 400, width: 50, height: 50, type: 'barrier' }
+]);
+const [powerUps, setPowerUps] = useState([
+{ x: 400, y: 200, type: 'speed', active: true },
+{ x: 200, y: 300, type: 'shield', active: true },
+{ x: 600, y: 400, type: 'repair', active: true }
+]);
+// Handle keyboard controls
+useEffect(() => {
+if (gameState !== 'playing') return;
+const handleKeyDown = (e: KeyboardEvent) => {
+switch (e.key) {
+case 'ArrowUp':
+setControls(prev => ({ ...prev, up: true }));
+break;
+case 'ArrowDown':
+setControls(prev => ({ ...prev, down: true }));
+break;
+case 'ArrowLeft':
+setControls(prev => ({ ...prev, left: true }));
+break;
+case 'ArrowRight':
+setControls(prev => ({ ...prev, right: true }));
+break;
+case 'p':
+setIsPaused(prev => !prev);
+break;
+default:
+break;
+}
+};
+const handleKeyUp = (e: KeyboardEvent) => {
+switch (e.key) {
+case 'ArrowUp':
+setControls(prev => ({ ...prev, up: false }));
+break;
+case 'ArrowDown':
+setControls(prev => ({ ...prev, down: false }));
+break;
+case 'ArrowLeft':
+setControls(prev => ({ ...prev, left: false }));
+break;
+case 'ArrowRight':
+setControls(prev => ({ ...prev, right: false }));
+break;
+default:
+break;
+}
+};
+window.addEventListener('keydown', handleKeyDown);
+window.addEventListener('keyup', handleKeyUp);
+return () => {
+window.removeEventListener('keydown', handleKeyDown);
+window.removeEventListener('keyup', handleKeyUp);
+};
+}, [gameState]);
+// Game loop
+useEffect(() => {
+if (gameState !== 'playing' || isPaused) return;
+const gameLoop = (timestamp: number) => {
+if (!lastTimeRef.current) {
+lastTimeRef.current = timestamp;
+}
+const deltaTime = timestamp - lastTimeRef.current;
+lastTimeRef.current = timestamp;
+// Update game state
+updateGameState(deltaTime);
+// Draw game
+drawGame();
+// Continue loop
+gameLoopRef.current = requestAnimationFrame(gameLoop);
+};
+gameLoopRef.current = requestAnimationFrame(gameLoop);
+return () => {
+if (gameLoopRef.current) {
+cancelAnimationFrame(gameLoopRef.current);
+}
+};
+}, [gameState, isPaused, controls, carPosition, carRotation]);
+const updateGameState = (deltaTime: number) => {
+// Update car position based on controls
+let newX = carPosition.x;
+let newY = carPosition.y;
+let newRotation = carRotation;
+const carSpeed = cars[selectedCar].speed * 0.5;
+if (controls.up) {
+newX += Math.sin(carRotation * Math.PI / 180) * carSpeed;
+newY -= Math.cos(carRotation * Math.PI / 180) * carSpeed;
+setSpeed(prev => Math.min(prev + 0.2, carSpeed * 2));
+} else if (controls.down) {
+newX -= Math.sin(carRotation * Math.PI / 180) * carSpeed * 0.5;
+newY += Math.cos(carRotation * Math.PI / 180) * carSpeed * 0.5;
+setSpeed(prev => Math.max(prev - 0.5, 0));
+} else {
+setSpeed(prev => Math.max(prev - 0.1, 0));
+}
+if (controls.left) {
+newRotation -= cars[selectedCar].handling * 0.3;
+}
+if (controls.right) {
+newRotation += cars[selectedCar].handling * 0.3;
+}
+// Keep car within bounds
+newX = Math.max(30, Math.min(newX, 770));
+newY = Math.max(30, Math.min(newY, 770));
+setCarPosition({ x: newX, y: newY });
+setCarRotation(newRotation);
+// Check for collisions with obstacles
+obstacles.forEach(obstacle => {
+if (
+newX > obstacle.x - 30 &&
+newX < obstacle.x + obstacle.width + 30 &&
+newY > obstacle.y - 30 &&
+newY < obstacle.y + obstacle.height + 30
+) {
+if (activePowerUp !== 'shield') {
+setHealth(prev => Math.max(prev - 5, 0));
+setSpeed(prev => prev * 0.7);
+}
+}
+});
+// Check for power-up collection
+setPowerUps(prev => prev.map(powerUp => {
+if (
+powerUp.active &&
+newX > powerUp.x - 30 &&
+newX < powerUp.x + 30 &&
+newY > powerUp.y - 30 &&
+newY < powerUp.y + 30
+) {
+setActivePowerUp(powerUp.type);
+// Apply power-up effect
+if (powerUp.type === 'repair') {
+setHealth(prev => Math.min(prev + 30, 100));
+}
+// Set timeout to remove power-up effect
+setTimeout(() => {
+setActivePowerUp(null);
+}, 5000);
+return { ...powerUp, active: false };
+}
+return powerUp;
+}));
+// Update time
+setTime(prev => prev + deltaTime / 1000);
+// Update score based on speed and time
+setScore(prev => prev + Math.floor(speed * 0.1));
+// Check if game over
+if (health <= 0) {
+setGameState('gameOver');
+}
+};
+const drawGame = () => {
+const canvas = canvasRef.current;
+if (!canvas) return;
+const ctx = canvas.getContext('2d');
+if (!ctx) return;
+// Clear canvas
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+// Draw track (simplified)
+ctx.fillStyle = '#333333';
+ctx.fillRect(100, 100, canvas.width - 200, canvas.height - 200);
+ctx.fillStyle = '#555555';
+ctx.fillRect(150, 150, canvas.width - 300, canvas.height - 300);
+// Draw obstacles
+obstacles.forEach(obstacle => {
+ctx.fillStyle = obstacle.type === 'oil' ? '#333' :
+obstacle.type === 'cone' ? '#ff8800' : '#cc0000';
+ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+});
+// Draw power-ups
+powerUps.forEach(powerUp => {
+if (powerUp.active) {
+ctx.fillStyle = powerUp.type === 'speed' ? '#00ff00' :
+powerUp.type === 'shield' ? '#0088ff' : '#ffff00';
+ctx.beginPath();
+ctx.arc(powerUp.x, powerUp.y, 15, 0, Math.PI * 2);
+ctx.fill();
+}
+});
+// Draw car
+ctx.save();
+ctx.translate(carPosition.x, carPosition.y);
+ctx.rotate(carRotation * Math.PI / 180);
+// Car body
+ctx.fillStyle = cars[selectedCar].color;
+ctx.fillRect(-15, -25, 30, 50);
+// Car details
+ctx.fillStyle = '#000000';
+ctx.fillRect(-12, -20, 24, 5); // windshield
+ctx.fillRect(-12, 15, 24, 5); // rear window
+ctx.restore();
+};
+const startGame = () => {
+setGameState('playing');
+setScore(0);
+setTime(0);
+setLap(1);
+setHealth(100);
+setSpeed(0);
+setCarPosition({ x: 400, y: 500 });
+setCarRotation(0);
+setActivePowerUp(null);
+setIsPaused(false);
+// Reset power-ups
+setPowerUps(powerUps.map(p => ({ ...p, active: true })));
+};
+const restartGame = () => {
+startGame();
+};
+const returnToMenu = () => {
+setGameState('menu');
+};
+// Touch controls for mobile
+const handleTouchStart = (direction: 'up' | 'down' | 'left' | 'right') => {
+setControls(prev => ({ ...prev, [direction]: true }));
+};
+const handleTouchEnd = (direction: 'up' | 'down' | 'left' | 'right') => {
+setControls(prev => ({ ...prev, [direction]: false }));
+};
+return (
+<div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center overflow-hidden">
+{/* Main Menu */}
+{gameState === 'menu' && !showCarSelection && !showTrackSelection && !showHighScores && (
+<div className="relative w-full h-screen flex flex-col items-center justify-center"
+style={{
+backgroundImage: `url('https://public.readdy.ai/ai/img_res/e50de44f784afc4a0f22923bdf1e8a77.jpg')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}>
+<div className="absolute inset-0 bg-black bg-opacity-50"></div>
+<div className="relative z-10 flex flex-col items-center">
+<h1 className="text-6xl font-bold mb-8 text-center text-white drop-shadow-lg">
+SPEED <span className="text-red-500">RACER</span>
+</h1>
+<p className="text-xl mb-12 text-center max-w-md">The ultimate top-down racing experience. Choose your car, master the tracks, and become the champion!</p>
+<div className="flex flex-col gap-4 w-64">
+<button
+onClick={startGame}
+className="bg-red-600 hover:bg-red-700 text-white py-4 px-8 text-2xl font-bold transition-all transform hover:scale-105 !rounded-button whitespace-nowrap cursor-pointer">
+PLAY NOW
+</button>
+<button
+onClick={() => setShowCarSelection(true)}
+className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Car Selection
+</button>
+<button
+onClick={() => setShowTrackSelection(true)}
+className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Track Selection
+</button>
+<button
+onClick={() => setShowHighScores(true)}
+className="bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+High Scores
+</button>
+</div>
+</div>
+{/* Sound toggle */}
+<button
+onClick={() => setIsSoundOn(!isSoundOn)}
+className="absolute top-6 right-6 bg-gray-800 bg-opacity-70 p-3 rounded-full !rounded-button whitespace-nowrap cursor-pointer">
+<i className={`fas ${isSoundOn ? 'fa-volume-up' : 'fa-volume-mute'} text-xl`}></i>
+</button>
+{/* Settings button */}
+<button
+className="absolute top-6 right-20 bg-gray-800 bg-opacity-70 p-3 rounded-full !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-cog text-xl"></i>
+</button>
+{/* Date display */}
+<div className="absolute bottom-4 left-4 text-sm text-gray-300">
+2025-04-02, Wednesday
+</div>
+</div>
+)}
+{/* Car Selection Screen */}
+{gameState === 'menu' && showCarSelection && (
+<div className="relative w-full h-screen flex flex-col items-center justify-center"
+style={{
+backgroundImage: `url('https://public.readdy.ai/ai/img_res/3798949561f47eeed43859e877b94d3d.jpg')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}>
+<div className="absolute inset-0 bg-black bg-opacity-60"></div>
+<div className="relative z-10 bg-gray-900 bg-opacity-80 p-8 rounded-xl max-w-4xl w-full">
+<h2 className="text-4xl font-bold mb-8 text-center">Select Your Car</h2>
+<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+{cars.map((car, index) => (
+<div
+key={index}
+onClick={() => setSelectedCar(index)}
+className={`bg-gray-800 p-6 rounded-lg transition-all cursor-pointer transform hover:scale-105 ${selectedCar === index ? 'ring-4 ring-blue-500' : ''}`}
+>
+<div
+className="h-40 mb-4 rounded-lg overflow-hidden"
+style={{
+backgroundColor: car.color,
+backgroundImage: `url('https://readdy.ai/api/search-image?query=Top-down view of a sleek ${car.color} race car on a neutral background. Detailed sports car with racing stripes and modern design. Professional studio lighting highlighting the aerodynamic features and glossy finish&width=300&height=200&seq=${index+3}&orientation=landscape')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}
+></div>
+<h3 className="text-xl font-bold mb-2">{car.name}</h3>
+<div className="space-y-2">
+<div className="flex items-center justify-between">
+<span>Speed</span>
+<div className="w-32 bg-gray-700 h-2 rounded-full">
+<div
+className="bg-red-500 h-2 rounded-full"
+style={{ width: `${car.speed * 10}%` }}
+></div>
+</div>
+</div>
+<div className="flex items-center justify-between">
+<span>Handling</span>
+<div className="w-32 bg-gray-700 h-2 rounded-full">
+<div
+className="bg-blue-500 h-2 rounded-full"
+style={{ width: `${car.handling * 10}%` }}
+></div>
+</div>
+</div>
+</div>
+</div>
+))}
+</div>
+<div className="mt-8 flex justify-center">
+<button
+onClick={() => setShowCarSelection(false)}
+className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-8 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Back to Menu
+</button>
+</div>
+</div>
+</div>
+)}
+{/* Track Selection Screen */}
+{gameState === 'menu' && showTrackSelection && (
+<div className="relative w-full h-screen flex flex-col items-center justify-center"
+style={{
+backgroundImage: `url('https://public.readdy.ai/ai/img_res/907d820219541b605078f4ee40a017b9.jpg')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}>
+<div className="absolute inset-0 bg-black bg-opacity-60"></div>
+<div className="relative z-10 bg-gray-900 bg-opacity-80 p-8 rounded-xl max-w-4xl w-full">
+<h2 className="text-4xl font-bold mb-8 text-center">Select Your Track</h2>
+<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+{tracks.map((track, index) => (
+<div
+key={index}
+onClick={() => setSelectedTrack(index)}
+className={`bg-gray-800 p-6 rounded-lg transition-all cursor-pointer transform hover:scale-105 ${selectedTrack === index ? 'ring-4 ring-green-500' : ''}`}
+>
+<div
+className="h-40 mb-4 rounded-lg overflow-hidden"
+style={{
+backgroundImage: `url('https://readdy.ai/api/search-image?query=Top-down view of a ${track.name.toLowerCase()} racing track with detailed asphalt texture, track markings, and surrounding environment. Professional aerial photography showing the complete circuit layout with dramatic lighting and vivid colors&width=300&height=200&seq=${index+7}&orientation=landscape')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}
+></div>
+<h3 className="text-xl font-bold mb-2">{track.name}</h3>
+<div className="space-y-2">
+<div className="flex items-center justify-between">
+<span>Difficulty</span>
+<span className={
+track.difficulty === "Easy" ? "text-green-500" :
+track.difficulty === "Medium" ? "text-yellow-500" : "text-red-500"
+}>{track.difficulty}</span>
+</div>
+<div className="flex items-center justify-between">
+<span>Laps</span>
+<span>{track.laps}</span>
+</div>
+</div>
+</div>
+))}
+</div>
+<div className="mt-8 flex justify-center">
+<button
+onClick={() => setShowTrackSelection(false)}
+className="bg-green-600 hover:bg-green-700 text-white py-3 px-8 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Back to Menu
+</button>
+</div>
+</div>
+</div>
+)}
+{/* High Scores Screen */}
+{gameState === 'menu' && showHighScores && (
+<div className="relative w-full h-screen flex flex-col items-center justify-center"
+style={{
+backgroundImage: `url('https://public.readdy.ai/ai/img_res/d32c5058a33f5a56f1c9739a83cf01ae.jpg')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}>
+<div className="absolute inset-0 bg-black bg-opacity-60"></div>
+<div className="relative z-10 bg-gray-900 bg-opacity-80 p-8 rounded-xl max-w-4xl w-full">
+<h2 className="text-4xl font-bold mb-8 text-center">High Scores</h2>
+<div className="overflow-hidden rounded-lg">
+<table className="min-w-full bg-gray-800">
+<thead>
+<tr>
+<th className="py-3 px-6 text-left text-lg font-semibold border-b border-gray-700">Rank</th>
+<th className="py-3 px-6 text-left text-lg font-semibold border-b border-gray-700">Player</th>
+<th className="py-3 px-6 text-left text-lg font-semibold border-b border-gray-700">Track</th>
+<th className="py-3 px-6 text-right text-lg font-semibold border-b border-gray-700">Score</th>
+</tr>
+</thead>
+<tbody>
+{highScores.map((score, index) => (
+<tr key={index} className={index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'}>
+<td className="py-4 px-6 border-b border-gray-700">
+<div className="flex items-center">
+{index === 0 && <i className="fas fa-trophy text-yellow-400 mr-2"></i>}
+{index === 1 && <i className="fas fa-trophy text-gray-400 mr-2"></i>}
+{index === 2 && <i className="fas fa-trophy text-yellow-700 mr-2"></i>}
+{index > 2 && <span className="font-medium">{index + 1}</span>}
+</div>
+</td>
+<td className="py-4 px-6 border-b border-gray-700">{score.name}</td>
+<td className="py-4 px-6 border-b border-gray-700">{score.track}</td>
+<td className="py-4 px-6 text-right border-b border-gray-700">{score.score.toLocaleString()}</td>
+</tr>
+))}
+</tbody>
+</table>
+</div>
+<div className="mt-8 flex justify-center">
+<button
+onClick={() => setShowHighScores(false)}
+className="bg-purple-600 hover:bg-purple-700 text-white py-3 px-8 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Back to Menu
+</button>
+</div>
+</div>
+</div>
+)}
+{/* Game Screen */}
+{gameState === 'playing' && (
+<div className="relative w-full h-screen bg-gray-900 flex flex-col items-center justify-center">
+{/* Game Canvas */}
+<canvas
+ref={canvasRef}
+width={800}
+height={800}
+className="border border-gray-700 bg-gray-800"
+></canvas>
+{/* Game UI Overlay */}
+<div className="absolute inset-0 pointer-events-none">
+{/* Top Bar */}
+<div className="flex justify-between items-center p-4">
+{/* Score */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded">
+<div className="text-sm text-gray-400">SCORE</div>
+<div className="text-2xl font-bold">{score.toLocaleString()}</div>
+</div>
+{/* Timer/Lap */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded text-center">
+<div className="text-sm text-gray-400">TIME</div>
+<div className="text-2xl font-bold">
+{Math.floor(time / 60)}:{(time % 60).toFixed(1).padStart(4, '0')}
+</div>
+<div className="text-sm mt-1">LAP {lap}/{tracks[selectedTrack].laps}</div>
+</div>
+{/* Position */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded text-right">
+<div className="text-sm text-gray-400">POSITION</div>
+<div className="text-2xl font-bold">{position}<sup>st</sup></div>
+</div>
+</div>
+{/* Bottom Bar */}
+<div className="absolute bottom-0 left-0 right-0 flex justify-between items-center p-4">
+{/* Health */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded">
+<div className="text-sm text-gray-400">HEALTH</div>
+<div className="w-32 bg-gray-700 h-3 rounded-full mt-1">
+<div
+className={`h-3 rounded-full ${
+health > 60 ? 'bg-green-500' :
+health > 30 ? 'bg-yellow-500' : 'bg-red-500'
+}`}
+style={{ width: `${health}%` }}
+></div>
+</div>
+</div>
+{/* Speed */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded text-center">
+<div className="text-sm text-gray-400">SPEED</div>
+<div className="text-2xl font-bold">{Math.floor(speed * 20)} km/h</div>
+</div>
+{/* Power-up */}
+<div className="bg-gray-900 bg-opacity-80 p-2 rounded">
+<div className="text-sm text-gray-400">POWER-UP</div>
+<div className="h-8 flex items-center justify-center">
+{activePowerUp ? (
+<div className={`px-3 py-1 rounded ${
+activePowerUp === 'speed' ? 'bg-green-600' :
+activePowerUp === 'shield' ? 'bg-blue-600' : 'bg-yellow-600'
+}`}>
+{activePowerUp.toUpperCase()}
+</div>
+) : (
+<span className="text-gray-500">None</span>
+)}
+</div>
+</div>
+</div>
+</div>
+{/* Mobile Controls */}
+<div className="absolute bottom-20 left-10 md:hidden">
+<div className="grid grid-cols-3 gap-2">
+<div></div>
+<button
+onTouchStart={() => handleTouchStart('up')}
+onTouchEnd={() => handleTouchEnd('up')}
+className="bg-gray-800 bg-opacity-70 w-16 h-16 rounded-full flex items-center justify-center !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-chevron-up text-2xl"></i>
+</button>
+<div></div>
+<button
+onTouchStart={() => handleTouchStart('left')}
+onTouchEnd={() => handleTouchEnd('left')}
+className="bg-gray-800 bg-opacity-70 w-16 h-16 rounded-full flex items-center justify-center !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-chevron-left text-2xl"></i>
+</button>
+<div></div>
+<button
+onTouchStart={() => handleTouchStart('right')}
+onTouchEnd={() => handleTouchEnd('right')}
+className="bg-gray-800 bg-opacity-70 w-16 h-16 rounded-full flex items-center justify-center !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-chevron-right text-2xl"></i>
+</button>
+<div></div>
+<button
+onTouchStart={() => handleTouchStart('down')}
+onTouchEnd={() => handleTouchEnd('down')}
+className="bg-gray-800 bg-opacity-70 w-16 h-16 rounded-full flex items-center justify-center !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-chevron-down text-2xl"></i>
+</button>
+<div></div>
+</div>
+</div>
+{/* Pause Button */}
+<button
+onClick={() => setIsPaused(!isPaused)}
+className="absolute top-4 right-4 bg-gray-800 bg-opacity-70 p-3 rounded-full pointer-events-auto !rounded-button whitespace-nowrap cursor-pointer">
+<i className={`fas ${isPaused ? 'fa-play' : 'fa-pause'} text-xl`}></i>
+</button>
+{/* Pause Menu */}
+{isPaused && (
+<div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center pointer-events-auto">
+<div className="bg-gray-900 p-8 rounded-xl max-w-md w-full">
+<h2 className="text-3xl font-bold mb-6 text-center">Game Paused</h2>
+<div className="space-y-4">
+<button
+onClick={() => setIsPaused(false)}
+className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Resume Game
+</button>
+<button
+onClick={restartGame}
+className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Restart Race
+</button>
+<button
+onClick={returnToMenu}
+className="w-full bg-red-600 hover:bg-red-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Quit to Menu
+</button>
+</div>
+<div className="mt-6 pt-6 border-t border-gray-700">
+<h3 className="text-xl font-bold mb-2">Controls</h3>
+<div className="grid grid-cols-2 gap-2 text-sm">
+<div>Arrow Up</div>
+<div>Accelerate</div>
+<div>Arrow Down</div>
+<div>Brake/Reverse</div>
+<div>Arrow Left/Right</div>
+<div>Steer</div>
+<div>P Key</div>
+<div>Pause Game</div>
+</div>
+</div>
+</div>
+</div>
+)}
+</div>
+)}
+{/* Game Over Screen */}
+{gameState === 'gameOver' && (
+<div className="relative w-full h-screen flex flex-col items-center justify-center"
+style={{
+backgroundImage: `url('https://public.readdy.ai/ai/img_res/18632d45ad1c0990fd8ab8dacd8da20d.jpg')`,
+backgroundSize: 'cover',
+backgroundPosition: 'center'
+}}>
+<div className="absolute inset-0 bg-black bg-opacity-60"></div>
+<div className="relative z-10 bg-gray-900 bg-opacity-80 p-8 rounded-xl max-w-md w-full">
+<h2 className="text-4xl font-bold mb-2 text-center">Race Complete!</h2>
+<p className="text-center text-gray-400 mb-6">You finished in position {position}</p>
+<div className="space-y-4 mb-8">
+<div className="bg-gray-800 p-4 rounded-lg">
+<div className="text-sm text-gray-400">FINAL SCORE</div>
+<div className="text-3xl font-bold">{score.toLocaleString()}</div>
+</div>
+<div className="bg-gray-800 p-4 rounded-lg">
+<div className="text-sm text-gray-400">TOTAL TIME</div>
+<div className="text-3xl font-bold">
+{Math.floor(time / 60)}:{(time % 60).toFixed(1).padStart(4, '0')}
+</div>
+</div>
+<div className="bg-gray-800 p-4 rounded-lg">
+<div className="text-sm text-gray-400">TRACK</div>
+<div className="text-xl font-bold">{tracks[selectedTrack].name}</div>
+</div>
+</div>
+<div className="space-y-4">
+<button
+onClick={restartGame}
+className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Race Again
+</button>
+<button
+onClick={returnToMenu}
+className="w-full bg-gray-600 hover:bg-gray-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+Back to Menu
+</button>
+<button
+className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-6 text-xl font-bold transition-all !rounded-button whitespace-nowrap cursor-pointer">
+<i className="fas fa-share-alt mr-2"></i> Share Score
+</button>
+</div>
+</div>
+</div>
+)}
+</div>
+);
+};
+export default App
